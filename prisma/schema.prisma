@@ -1,0 +1,404 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  VIEWER
+}
+
+enum InstitutionType {
+  BANK
+  BROKER
+  MUTUAL_FUND
+  CREDIT_BUREAU
+  ACCOUNT_AGGREGATOR
+  MANUAL
+}
+
+enum AccountType {
+  SAVINGS
+  CURRENT
+  BROKERAGE
+  CREDIT_CARD
+  LOAN
+  FIXED_DEPOSIT
+  RECURRING_DEPOSIT
+  WALLET
+}
+
+enum AssetType {
+  INDIAN_STOCK
+  US_STOCK
+  MUTUAL_FUND
+  GOLD
+  SILVER
+  BANK
+  CASH
+}
+
+enum Currency {
+  INR
+  USD
+}
+
+enum TransactionType {
+  BUY
+  SELL
+  DIVIDEND
+  INTEREST
+  DEPOSIT
+  WITHDRAWAL
+  FEE
+  CREDIT
+  DEBIT
+}
+
+enum SyncProvider {
+  AA
+  INDMONEY
+  YAHOO_FINANCE
+  AMFI
+  GOLD_PRICE
+  EXCHANGE_RATE
+  MANUAL
+}
+
+enum SyncStatus {
+  QUEUED
+  RUNNING
+  SUCCESS
+  FAILED
+  RETRYING
+}
+
+enum NotificationStatus {
+  PENDING
+  SENT
+  FAILED
+  READ
+}
+
+model User {
+  id           String     @id @default(uuid()) @db.Uuid
+  email        String     @unique
+  name         String
+  passwordHash String
+  role         UserRole   @default(OWNER)
+  sessions     Session[]
+  accounts     Account[]
+  holdings     Holding[]
+  transactions Transaction[]
+  snapshots    PortfolioSnapshot[]
+  syncJobs     SyncJob[]
+  notifications Notification[]
+  auditLogs    AuditLog[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  deletedAt    DateTime?
+
+  @@index([email])
+  @@index([deletedAt])
+}
+
+model Session {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @db.Uuid
+  refreshHash  String
+  userAgent    String?
+  ipAddress    String?
+  expiresAt    DateTime
+  revokedAt    DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Institution {
+  id        String          @id @default(uuid()) @db.Uuid
+  name      String
+  type      InstitutionType
+  code      String?
+  accounts  Account[]
+  createdAt DateTime        @default(now())
+  updatedAt DateTime        @updatedAt
+  deletedAt DateTime?
+
+  @@unique([name, type])
+  @@index([type])
+}
+
+model Account {
+  id            String       @id @default(uuid()) @db.Uuid
+  userId        String       @db.Uuid
+  institutionId String?      @db.Uuid
+  name          String
+  type          AccountType
+  currency      Currency     @default(INR)
+  externalRef   String?
+  isActive      Boolean      @default(true)
+  bankAccount   BankAccount?
+  creditCard    CreditCard?
+  loan          Loan?
+  fixedDeposit  FixedDeposit?
+  recurringDeposit RecurringDeposit?
+  transactions  Transaction[]
+  holdings      Holding[]
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  institution   Institution? @relation(fields: [institutionId], references: [id])
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  deletedAt     DateTime?
+
+  @@index([userId, type])
+  @@index([institutionId])
+  @@unique([userId, externalRef])
+}
+
+model BankAccount {
+  id            String   @id @default(uuid()) @db.Uuid
+  accountId     String   @unique @db.Uuid
+  accountNumber String?
+  ifsc          String?
+  balance       Decimal  @db.Decimal(18, 4)
+  account       Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  deletedAt     DateTime?
+}
+
+model CreditCard {
+  id           String   @id @default(uuid()) @db.Uuid
+  accountId    String   @unique @db.Uuid
+  maskedNumber String
+  limitAmount  Decimal  @db.Decimal(18, 4)
+  outstanding  Decimal  @db.Decimal(18, 4)
+  dueDate      DateTime?
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+}
+
+model Loan {
+  id             String   @id @default(uuid()) @db.Uuid
+  accountId      String   @unique @db.Uuid
+  principal      Decimal  @db.Decimal(18, 4)
+  outstanding    Decimal  @db.Decimal(18, 4)
+  interestRate   Decimal  @db.Decimal(8, 4)
+  emiAmount      Decimal? @db.Decimal(18, 4)
+  maturityDate   DateTime?
+  account        Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+}
+
+model FixedDeposit {
+  id           String   @id @default(uuid()) @db.Uuid
+  accountId    String   @unique @db.Uuid
+  principal    Decimal  @db.Decimal(18, 4)
+  currentValue Decimal  @db.Decimal(18, 4)
+  interestRate Decimal  @db.Decimal(8, 4)
+  maturityDate DateTime
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  deletedAt    DateTime?
+}
+
+model RecurringDeposit {
+  id             String   @id @default(uuid()) @db.Uuid
+  accountId      String   @unique @db.Uuid
+  monthlyAmount  Decimal  @db.Decimal(18, 4)
+  currentValue   Decimal  @db.Decimal(18, 4)
+  interestRate   Decimal  @db.Decimal(8, 4)
+  maturityDate   DateTime
+  account        Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  deletedAt      DateTime?
+}
+
+model Asset {
+  id          String       @id @default(uuid()) @db.Uuid
+  symbol      String
+  name        String
+  type        AssetType
+  currency    Currency
+  isin        String?
+  exchange    String?
+  prices      AssetPrice[]
+  holdings    Holding[]
+  transactions Transaction[]
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  deletedAt   DateTime?
+
+  @@unique([symbol, type])
+  @@index([type])
+  @@index([isin])
+}
+
+model Holding {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  accountId       String?  @db.Uuid
+  assetId         String   @db.Uuid
+  quantity        Decimal  @db.Decimal(24, 8)
+  averageCost     Decimal  @db.Decimal(18, 4)
+  investedValue   Decimal  @db.Decimal(18, 4)
+  realizedGain    Decimal  @default(0) @db.Decimal(18, 4)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account         Account? @relation(fields: [accountId], references: [id])
+  asset           Asset    @relation(fields: [assetId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  deletedAt       DateTime?
+
+  @@unique([userId, assetId, accountId])
+  @@index([userId])
+  @@index([assetId])
+}
+
+model Transaction {
+  id          String          @id @default(uuid()) @db.Uuid
+  userId      String          @db.Uuid
+  accountId   String?         @db.Uuid
+  assetId     String?         @db.Uuid
+  type        TransactionType
+  quantity    Decimal?        @db.Decimal(24, 8)
+  price       Decimal?        @db.Decimal(18, 4)
+  amount      Decimal         @db.Decimal(18, 4)
+  currency    Currency
+  occurredAt  DateTime
+  notes       String?
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account     Account?        @relation(fields: [accountId], references: [id])
+  asset       Asset?          @relation(fields: [assetId], references: [id])
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  deletedAt   DateTime?
+
+  @@index([userId, occurredAt])
+  @@index([assetId])
+  @@index([accountId])
+}
+
+model PortfolioSnapshot {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  totalInvested   Decimal  @db.Decimal(18, 4)
+  currentValue    Decimal  @db.Decimal(18, 4)
+  realizedGain    Decimal  @db.Decimal(18, 4)
+  unrealizedGain  Decimal  @db.Decimal(18, 4)
+  netWorth        Decimal  @db.Decimal(18, 4)
+  allocationJson  Json
+  snapshotDate    DateTime
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([userId, snapshotDate])
+  @@index([snapshotDate])
+}
+
+model AssetPrice {
+  id        String   @id @default(uuid()) @db.Uuid
+  assetId   String   @db.Uuid
+  price     Decimal  @db.Decimal(18, 6)
+  currency  Currency
+  source    SyncProvider
+  pricedAt  DateTime
+  asset     Asset    @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([assetId, pricedAt, source])
+  @@index([assetId, pricedAt])
+}
+
+model ExchangeRate {
+  id           String   @id @default(uuid()) @db.Uuid
+  baseCurrency Currency
+  quoteCurrency Currency
+  rate         Decimal  @db.Decimal(18, 8)
+  source       SyncProvider
+  ratedAt      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([baseCurrency, quoteCurrency, ratedAt, source])
+  @@index([baseCurrency, quoteCurrency, ratedAt])
+}
+
+model SyncJob {
+  id          String       @id @default(uuid()) @db.Uuid
+  userId      String?      @db.Uuid
+  provider    SyncProvider
+  status      SyncStatus   @default(QUEUED)
+  jobType     String
+  payload     Json
+  startedAt   DateTime?
+  finishedAt  DateTime?
+  errorMessage String?
+  logs        SyncLog[]
+  user        User?        @relation(fields: [userId], references: [id])
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@index([provider, status])
+  @@index([userId])
+}
+
+model SyncLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  syncJobId String   @db.Uuid
+  level     String
+  message   String
+  metadata  Json?
+  syncJob   SyncJob  @relation(fields: [syncJobId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([syncJobId])
+}
+
+model Notification {
+  id        String             @id @default(uuid()) @db.Uuid
+  userId    String             @db.Uuid
+  title     String
+  body      String
+  status    NotificationStatus @default(PENDING)
+  metadata  Json?
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+  deletedAt DateTime?
+
+  @@index([userId, status])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String?  @db.Uuid
+  action      String
+  entityType  String
+  entityId    String?
+  ipAddress   String?
+  userAgent   String?
+  metadata    Json?
+  user        User?    @relation(fields: [userId], references: [id])
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([entityType, entityId])
+}
